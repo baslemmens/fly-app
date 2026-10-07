@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Scan: Syride devices",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scanner/ble_scanner.py",
+      "args": ["scan"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Scan: all BLE devices",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scanner/ble_scanner.py",
+      "args": ["scan", "--all", "--timeout", "15"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Explore: Syride XL (2 min)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scanner/ble_scanner.py",
+      "args": ["explore", "--duration", "120"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Explore: by address (asks)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scanner/ble_scanner.py",
+      "args": ["explore", "--address", "${input:bleAddress}", "--duration", "300", "--raw"],
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "bleAddress",
+      "type": "promptString",
+      "description": "Device address/UUID from the scan output"
+    }
+  ]
+}

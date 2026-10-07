@@ -1,0 +1,11 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# BLE captures contain GPS positions - keep them out of git
+captures/*
+!captures/.gitkeep
+
+# macOS / editors
+.DS_Store

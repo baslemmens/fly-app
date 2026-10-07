@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""
+fly-app BLE scanner - Phase 0 reconnaissance for the Syride Sys'Nav XL.
+
+Two commands:
+
+  scan     List nearby Bluetooth LE devices with their advertisement data.
+  explore  Connect to one device, map all services/characteristics, read what
+           is readable, subscribe to every notify/indicate characteristic and
+           log everything that arrives to captures/ as JSON Lines.
+
+Examples:
+  python scanner/ble_scanner.py scan
+  python scanner/ble_scanner.py scan --all --timeout 15
+  python scanner/ble_scanner.py explore --name syride --duration 120
+  python scanner/ble_scanner.py explore --address 1A2B3C4D-... --duration 300
+
+Nothing is written TO the device: this tool only reads and listens.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import signal
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+try:
+    from bleak import BleakClient, BleakScanner
+    from bleak.backends.characteristic import BleakGATTCharacteristic
+except ImportError:  # pragma: no cover - only hit when deps are missing
+    sys.exit("bleak is not installed. Run: pip install -r requirements.txt")
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CAPTURE_DIR = REPO_ROOT / "captures"
+
+# Name fragments that probably belong to a Syride instrument. Matching is
+# case-insensitive. Run `scan --all` once to learn the real advertised name
+# and add it here if it differs.
+DEFAULT_NAME_HINTS = ("syride", "sysnav", "sys'nav", "sys nav", "nav xl")
+
+
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def to_ascii(data: bytes) -> str:
+    """Printable view of raw bytes: printable ASCII kept, everything else '.'."""
+    return "".join(chr(b) if 32 <= b < 127 else "." for b in data)
+
+
+def looks_like_name(name: str | None, hints: tuple[str, ...]) -> bool:
+    if not name:
+        return False
+    lowered = name.lower()
+    return any(h in lowered for h in hints)
+
+
+class LineAssembler:
+    """
+    Reassembles text lines that arrive split across BLE notifications.
+
+    BLE packets are small (often 20 bytes), so one NMEA sentence like
+    "$LK8EX1,101300,99999,-12,25,1000,*0A\\r\\n" usually spans several
+    notifications. Feed raw chunks in; complete lines come out.
+    """
+
+    def __init__(self, max_buffer: int = 4096) -> None:
+        self._buf = ""
+        self._max = max_buffer
+
+    def feed(self, data: bytes) -> list[str]:
+        try:
+            text = data.decode("ascii")
+        except UnicodeDecodeError:
+            # Binary data: drop any half line so it can't merge with garbage.
+            self._buf = ""
+            return []
+        self._buf += text
+        parts = self._buf.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        self._buf = parts.pop()  # last part is an unfinished line
+        if len(self._buf) > self._max:
+            self._buf = ""
+        return [p for p in parts if p.strip()]
+
+
+def is_nmea(line: str) -> bool:
+    """True for lines shaped like NMEA sentences: $TALKER,...[*HH]."""
+    return line.startswith(("$", "!")) and "," in line
+
+
+def nmea_checksum_ok(line: str) -> bool | None:
+    """Checks the *HH checksum. None when the sentence carries no checksum."""
+    if "*" not in line:
+        return None
+    body, _, given = line[1:].partition("*")
+    calc = 0
+    for ch in body:
+        calc ^= ord(ch)
+    try:
+        return calc == int(given[:2], 16)
+    except ValueError:
+        return False
+
+
+class CaptureLog:
+    """Writes one JSON object per line to captures/<timestamp>_<label>.jsonl."""
+
+    def __init__(self, label: str) -> None:
+        CAPTURE_DIR.mkdir(exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)
+        self.path = CAPTURE_DIR / f"{stamp}_{safe}.jsonl"
+        self._fh = self.path.open("w", encoding="utf-8")
+
+    def write(self, record: dict) -> None:
+        record.setdefault("t", now_iso())
+        self._fh.write(json.dumps(record) + "\n")
+        self._fh.flush()
+
+    def close(self) -> None:
+        self._fh.close()
+
+
+# --------------------------------------------------------------------------
+# scan
+# --------------------------------------------------------------------------
+
+async def cmd_scan(args: argparse.Namespace) -> int:
+    hints = tuple(h.lower() for h in (args.name or DEFAULT_NAME_HINTS))
+    print(f"Scanning for {args.timeout:.0f} s ...")
+    found = await BleakScanner.discover(timeout=args.timeout, return_adv=True)
+
+    rows = []
+    for address, (device, adv) in found.items():
+        name = adv.local_name or device.name
+        if not args.all and not looks_like_name(name, hints):
+            continue
+        rows.append((adv.rssi, address, name, adv))
+
+    if not rows:
+        print("No matching devices. Is the XL switched on with Bluetooth enabled?")
+        print("Tip: run with --all to see every device and find its real name.")
+        return 1
+
+    rows.sort(key=lambda r: r[0], reverse=True)  # strongest signal first
+    for rssi, address, name, adv in rows:
+        print(f"\n{name or '(no name)'}")
+        print(f"  address : {address}")
+        print(f"  rssi    : {rssi} dBm")
+        if adv.service_uuids:
+            print("  services: " + ", ".join(adv.service_uuids))
+        for company_id, payload in adv.manufacturer_data.items():
+            print(f"  mfr data: 0x{company_id:04X} -> {payload.hex(' ')}")
+        for uuid, payload in adv.service_data.items():
+            print(f"  svc data: {uuid} -> {payload.hex(' ')}")
+
+    print("\nOn macOS the address is a per-Mac UUID, not the device's MAC address.")
+    print("Use it with: explore --address <address>")
+    return 0
+
+
+# --------------------------------------------------------------------------
+# explore
+# --------------------------------------------------------------------------
+
+async def find_target(args: argparse.Namespace):
+    if args.address:
+        device = await BleakScanner.find_device_by_address(args.address, timeout=args.timeout)
+    else:
+        hints = tuple(h.lower() for h in (args.name or DEFAULT_NAME_HINTS))
+        device = await BleakScanner.find_device_by_filter(
+            lambda d, ad: looks_like_name(ad.local_name or d.name, hints),
+            timeout=args.timeout,
+        )
+    return device
+
+
+async def cmd_explore(args: argparse.Namespace) -> int:
+    print("Looking for the device ...")
+    device = await find_target(args)
+    if device is None:
+        print("Device not found. Check it is on, nearby, and not connected to the Syride app.")
+        return 1
+
+    label = device.name or device.address
+    log = CaptureLog(label)
+    print(f"Found {label} ({device.address}). Logging to {log.path.relative_to(REPO_ROOT)}")
+
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:  # Windows
+            pass
+
+    def on_disconnect(_client) -> None:
+        print("\nDevice disconnected.")
+        log.write({"type": "disconnect"})
+        stop.set()
+
+    counts: dict[str, int] = {}
+    assemblers: dict[str, LineAssembler] = {}
+
+    def make_handler(char: BleakGATTCharacteristic):
+        key = char.uuid
+        assemblers[key] = LineAssembler()
+        counts[key] = 0
+
+        def handler(_sender, data: bytearray) -> None:
+            raw = bytes(data)
+            counts[key] += 1
+            log.write({"type": "notify", "char": key, "len": len(raw),
+                       "hex": raw.hex(), "ascii": to_ascii(raw)})
+            for line in assemblers[key].feed(raw):
+                nmea = is_nmea(line)
+                log.write({"type": "line", "char": key, "nmea": nmea,
+                           "checksum_ok": nmea_checksum_ok(line) if nmea else None,
+                           "text": line})
+                if not args.quiet:
+                    tag = "NMEA" if nmea else "TEXT"
+                    print(f"  [{tag}] {short(key)}  {line}")
+            if args.raw and not args.quiet:
+                print(f"  [RAW ] {short(key)}  {raw.hex(' ')}")
+
+        return handler
+
+    async with BleakClient(device, disconnected_callback=on_disconnect) as client:
+        log.write({"type": "connected", "name": device.name, "address": device.address})
+        gatt_map = []
+        subscribed = []
+
+        print("\nGATT map")
+        for service in client.services:
+            print(f"\nService {service.uuid}  {service.description}")
+            svc_entry = {"uuid": service.uuid, "description": service.description,
+                         "characteristics": []}
+            for char in service.characteristics:
+                props = ",".join(char.properties)
+                print(f"  Char {char.uuid}  [{props}]  {char.description}")
+                entry = {"uuid": char.uuid, "handle": char.handle,
+                         "properties": list(char.properties),
+                         "description": char.description, "descriptors": []}
+
+                if "read" in char.properties:
+                    try:
+                        value = bytes(await client.read_gatt_char(char))
+                        entry["value_hex"] = value.hex()
+                        entry["value_ascii"] = to_ascii(value)
+                        print(f"      value: {value.hex(' ')}  |{to_ascii(value)}|")
+                    except Exception as exc:  # noqa: BLE001 - log any read failure
+                        entry["read_error"] = str(exc)
+                        print(f"      read failed: {exc}")
+
+                for desc in char.descriptors:
+                    entry["descriptors"].append({"uuid": desc.uuid, "handle": desc.handle})
+                    print(f"      Descriptor {desc.uuid}")
+
+                if {"notify", "indicate"} & set(char.properties):
+                    try:
+                        await client.start_notify(char, make_handler(char))
+                        subscribed.append(char.uuid)
+                        entry["subscribed"] = True
+                    except Exception as exc:  # noqa: BLE001
+                        entry["subscribe_error"] = str(exc)
+                        print(f"      subscribe failed: {exc}")
+
+                svc_entry["characteristics"].append(entry)
+            gatt_map.append(svc_entry)
+
+        log.write({"type": "gatt_map", "services": gatt_map})
+        map_path = log.path.with_suffix(".gatt.json")
+        map_path.write_text(json.dumps(gatt_map, indent=2), encoding="utf-8")
+        print(f"\nGATT map saved to {map_path.relative_to(REPO_ROOT)}")
+
+        if not subscribed:
+            print("No notify/indicate characteristics found; nothing to listen to.")
+        else:
+            print(f"\nListening on {len(subscribed)} characteristic(s) for "
+                  f"{args.duration:.0f} s. Press Ctrl+C to stop early.\n")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=args.duration)
+            except asyncio.TimeoutError:
+                pass
+
+            if client.is_connected:
+                for uuid in subscribed:
+                    try:
+                        await client.stop_notify(uuid)
+                    except Exception:  # noqa: BLE001 - best effort on shutdown
+                        pass
+
+    log.write({"type": "summary", "notifications": counts})
+    log.close()
+    print("\nSummary (notifications per characteristic):")
+    for uuid, n in counts.items():
+        print(f"  {uuid}: {n}")
+    print(f"\nCapture: {log.path.relative_to(REPO_ROOT)}")
+    return 0
+
+
+def short(uuid: str) -> str:
+    """Shorten standard 128-bit UUIDs (0000xxxx-0000-1000-8000-00805f9b34fb) to xxxx."""
+    u = uuid.lower()
+    if u.startswith("0000") and u.endswith("-0000-1000-8000-00805f9b34fb"):
+        return u[4:8]
+    return u[:8]
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="BLE recon for the Syride Sys'Nav XL (read-only).")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    s = sub.add_parser("scan", help="list nearby BLE devices")
+    s.add_argument("--timeout", type=float, default=10.0, help="scan time in seconds (default 10)")
+    s.add_argument("--all", action="store_true", help="show every device, not only Syride-like names")
+    s.add_argument("--name", action="append", help="name fragment to match (repeatable)")
+
+    e = sub.add_parser("explore", help="connect, map GATT, log all notifications")
+    target = e.add_mutually_exclusive_group()
+    target.add_argument("--address", help="device address/UUID from `scan`")
+    target.add_argument("--name", action="append", help="name fragment to match (repeatable)")
+    e.add_argument("--timeout", type=float, default=15.0, help="time to find the device (default 15)")
+    e.add_argument("--duration", type=float, default=60.0, help="listen time in seconds (default 60)")
+    e.add_argument("--raw", action="store_true", help="also print every raw packet as hex")
+    e.add_argument("--quiet", action="store_true", help="log to file only, print nothing per packet")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    handler = {"scan": cmd_scan, "explore": cmd_explore}[args.command]
+    try:
+        return asyncio.run(handler(args))
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

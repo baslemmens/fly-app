@@ -1,0 +1,18 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup: create venv and install",
+      "type": "shell",
+      "command": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: unit tests",
+      "type": "shell",
+      "command": ".venv/bin/python -m unittest discover -s tests -v",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}
