@@ -42,6 +42,12 @@ From the Run and Debug panel (F5), or the terminal:
 Try `explore` twice: once with the XL idle, once with external-sensor mode on.
 Write what you find in `docs/protocol-notes.md`.
 
+## Decode a capture
+
+`python scanner/syride_live.py captures/<file>.jsonl` prints the decoded GPS fixes and vario
+values from the live stream (add `--csv` for a spreadsheet). Format details are in
+`docs/protocol-notes.md`.
+
 ## Tests
 
 `python -m unittest discover -s tests -v` (also in the VS Code Testing panel).
