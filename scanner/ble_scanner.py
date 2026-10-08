@@ -408,8 +408,8 @@ async def cmd_record(args: argparse.Namespace) -> int:
                     for w in waiters:
                         w.cancel()
             except Exception as exc:  # noqa: BLE001 - keep recording through BLE errors
-                print(f"  connection error: {exc}")
-                log.write({"type": "error", "error": str(exc)})
+                print(f"  connection error: {exc!r}")
+                log.write({"type": "error", "error": repr(exc)})
             if dropped.is_set() and not stop.is_set():
                 print("  link dropped, reconnecting ...")
                 log.write({"type": "disconnect"})

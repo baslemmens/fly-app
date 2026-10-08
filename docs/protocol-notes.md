@@ -96,6 +96,26 @@ curve 664 → 1175, likely the vario audio frequency table. Not needed for fligh
 
 `01` and `02` every 20 s, offset by 10 s. Possibly GPS-fix or flight state; check in flight.
 
+## Walk test, 2026-10-08 (XCTrack mode, `record`)
+
+11.5-minute walk around the house, recorded on the Mac with `ble_scanner.py record`,
+converted with `nmea_to_igc.py --turn-rate 4`.
+
+| Check | Result |
+| --- | --- |
+| Sentences | 6,421, 0 bad checksums (LXWP0 2,630, LK8EX1 2,599, GNRMC 597, GNGGA 594) |
+| GPS fixes → IGC B records | 594 |
+| Link | dropped once at ~150 m from the Mac; `record` reconnected after 88 s by itself |
+| Track | 0.81 km loop, ends 20 m from the start, shape matches the route walked |
+| Pressure altitude | 622.8–629.9 m, smooth; short rise around minute 8 |
+| Max climb / sink | +0.44 / −0.45 m/s (5 s average) |
+| Turning while moving | left 15.4 %, right 18.1 %, straight 66.5 % (threshold 4°/s) |
+
+Takeaways: the pipeline works end to end on real movement. BLE range from the XL to a
+MacBook is roughly 100–150 m in the open; a phone in the harness is centimetres away.
+IGC altitudes are whole metres, so slow climbs look stepped; the stats use the
+unrounded values.
+
 ## What's still open for Plan A
 
 - Default mode: speed and heading units need a moving capture. Not needed if we use XCTrack mode.
@@ -119,6 +139,7 @@ curve 664 → 1175, likely the vario audio frequency table. Not needed for fligh
 | `20261008-161002_NavXL20251169.jsonl` / `.gatt.json` | first connect, 60 s, at rest, default mode |
 | `20261008-161605_scan_all.json` | advertisement scan in XCTrack mode |
 | `20261008-161846_Nav_XL20251169.jsonl` / `.gatt.json` | XCTrack mode, 120 s, at rest |
+| `20261008-163411_record_walk.jsonl` / `.igc` / `.stats.json` | XCTrack mode, 11.5-min walk |
 
 ## Open questions
 
