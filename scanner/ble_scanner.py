@@ -42,8 +42,10 @@ CAPTURE_DIR = REPO_ROOT / "captures"
 # and add it here if it differs.
 DEFAULT_NAME_HINTS = ("navxl", "syride", "sysnav", "sys'nav", "sys nav", "nav xl")
 
-# Seen on a Sys'Nav XL (advertised as "NavXL20251169", 2026-10-08):
-# service 0000eff0-... and manufacturer data 0xEEFF -> b"Syride".
+# Seen on a Sys'Nav XL, 2026-10-08:
+#   default mode: name "NavXL<serial>", service 0000eff0-..., mfr 0xEEFF -> b"Syride"
+#   XCTrack mode: name "Nav_XL<serial>", no service, mfr 0x000D -> b"Syride\x00",
+#                 and a different BLE address.
 SYRIDE_SERVICE_UUID = "0000eff0-0000-1000-8000-00805f9b34fb"
 SYRIDE_MFR_ID = 0xEEFF
 
@@ -64,8 +66,10 @@ def to_ascii(data: bytes) -> str:
 def looks_like_name(name: str | None, hints: tuple[str, ...]) -> bool:
     if not name:
         return False
+    # Ignore separators: default mode advertises "NavXL…", XCTrack mode "Nav_XL…".
+    squashed = "".join(c for c in name.lower() if c.isalnum())
     lowered = name.lower()
-    return any(h in lowered for h in hints)
+    return any(h in lowered or "".join(c for c in h if c.isalnum()) in squashed for h in hints)
 
 
 def looks_like_syride(name: str | None, service_uuids, manufacturer_data,
@@ -75,8 +79,8 @@ def looks_like_syride(name: str | None, service_uuids, manufacturer_data,
         return True
     if SYRIDE_SERVICE_UUID in [u.lower() for u in (service_uuids or [])]:
         return True
-    payload = (manufacturer_data or {}).get(SYRIDE_MFR_ID, b"")
-    return b"syride" in bytes(payload).lower()
+    # Default mode uses company ID 0xEEFF, XCTrack mode 0x000D; both carry "Syride".
+    return any(b"syride" in bytes(p).lower() for p in (manufacturer_data or {}).values())
 
 
 class LineAssembler:

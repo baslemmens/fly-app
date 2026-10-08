@@ -68,6 +68,8 @@ class HelperTest(unittest.TestCase):
     def test_syride_match_by_service_and_mfr(self):
         self.assertTrue(bs.looks_like_syride(None, ["0000EFF0-0000-1000-8000-00805F9B34FB"], {}))
         self.assertTrue(bs.looks_like_syride(None, [], {0xEEFF: b"Syride"}))
+        self.assertTrue(bs.looks_like_syride("Nav_XL20251169", [], {0x000D: b"Syride\x00"}))
+        self.assertTrue(bs.looks_like_name("Nav_XL20251169", bs.DEFAULT_NAME_HINTS))
         self.assertFalse(bs.looks_like_syride("iPhone", ["180a"], {0x004C: b"\x12\x02"}))
 
     def test_short_uuid(self):
