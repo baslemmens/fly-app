@@ -117,6 +117,17 @@ IGC altitudes are whole metres, so slow climbs look stepped; the stats use the
 unrounded values. An earlier conversion while recording was still running
 (up to 16:45) gave 0.81 km and 594 fixes; the numbers above are the complete run.
 
+### SeeYou Cloud upload test
+
+- The walk IGC uploaded fine and appears on the SeeYou Cloud dashboard, but **not in the
+  logbook and without a playback path**. The file itself is valid (1,056 B records, correct
+  format, increasing times, ASCII, CRLF).
+- The same track sped up 6× (every 6th fix at 1 s spacing, ~28 km/h, file
+  `captures/walk_speedx6_TEST.igc`) **does show the correct path**.
+- Conclusion: SeeYou only logs and replays what it recognises as a flight; walking speed
+  never counts as a takeoff. Our unsigned IGC files are accepted. For ground tests of the
+  logbook upload, use a car or bike ride, not a walk.
+
 ## What's still open for Plan A
 
 - Default mode: speed and heading units need a moving capture. Not needed if we use XCTrack mode.
