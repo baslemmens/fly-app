@@ -98,23 +98,24 @@ curve 664 → 1175, likely the vario audio frequency table. Not needed for fligh
 
 ## Walk test, 2026-10-08 (XCTrack mode, `record`)
 
-11.5-minute walk around the house, recorded on the Mac with `ble_scanner.py record`,
-converted with `nmea_to_igc.py --turn-rate 4`.
+19-minute walk around the house, recorded on the Mac with `ble_scanner.py record`
+(16:34–16:54 local), converted with `nmea_to_igc.py --turn-rate 4`.
 
 | Check | Result |
 | --- | --- |
-| Sentences | 6,421, 0 bad checksums (LXWP0 2,630, LK8EX1 2,599, GNRMC 597, GNGGA 594) |
-| GPS fixes → IGC B records | 594 |
-| Link | dropped once at ~150 m from the Mac; `record` reconnected after 88 s by itself |
-| Track | 0.81 km loop, ends 20 m from the start, shape matches the route walked |
-| Pressure altitude | 622.8–629.9 m, smooth; short rise around minute 8 |
+| Sentences | 11,377, 0 bad checksums |
+| GPS fixes → IGC B records | 1,056 |
+| Link | dropped at ~150 m from the Mac (16:39) and reconnected by itself after 88 s; dropped again at 16:53 and did not come back before the 20-min end |
+| Track | 1.42 km: 0.88 km loop east, then 0.67 km out and back west (walking pace 1.3–1.4 m/s) |
+| Pressure altitude | 622.8–632.1 m, smooth; a 7 m rise and fall on the western leg |
 | Max climb / sink | +0.44 / −0.45 m/s (5 s average) |
-| Turning while moving | left 15.4 %, right 18.1 %, straight 66.5 % (threshold 4°/s) |
+| Turning while moving | left 17.8 %, right 22.6 %, straight 59.6 % (threshold 4°/s) |
 
 Takeaways: the pipeline works end to end on real movement. BLE range from the XL to a
 MacBook is roughly 100–150 m in the open; a phone in the harness is centimetres away.
 IGC altitudes are whole metres, so slow climbs look stepped; the stats use the
-unrounded values.
+unrounded values. An earlier conversion while recording was still running
+(up to 16:45) gave 0.81 km and 594 fixes; the numbers above are the complete run.
 
 ## What's still open for Plan A
 
@@ -139,7 +140,7 @@ unrounded values.
 | `20261008-161002_NavXL20251169.jsonl` / `.gatt.json` | first connect, 60 s, at rest, default mode |
 | `20261008-161605_scan_all.json` | advertisement scan in XCTrack mode |
 | `20261008-161846_Nav_XL20251169.jsonl` / `.gatt.json` | XCTrack mode, 120 s, at rest |
-| `20261008-163411_record_walk.jsonl` / `.igc` / `.stats.json` | XCTrack mode, 11.5-min walk |
+| `20261008-163411_record_walk.jsonl` / `.igc` / `.stats.json` | XCTrack mode, 19-min walk |
 
 ## Open questions
 
