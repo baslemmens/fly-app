@@ -2,11 +2,40 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Record walk (20 min)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scanner/ble_scanner.py",
+      "args": [
+        "record",
+        "--duration",
+        "1200",
+        "--label",
+        "walk"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Convert latest recording to IGC",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scanner/nmea_to_igc.py",
+      "args": [
+        "--latest",
+        "--json",
+        "--turn-rate",
+        "4"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Scan: Syride devices",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/scanner/ble_scanner.py",
-      "args": ["scan"],
+      "args": [
+        "scan"
+      ],
       "console": "integratedTerminal"
     },
     {
@@ -14,7 +43,12 @@
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/scanner/ble_scanner.py",
-      "args": ["scan", "--all", "--timeout", "15"],
+      "args": [
+        "scan",
+        "--all",
+        "--timeout",
+        "15"
+      ],
       "console": "integratedTerminal"
     },
     {
@@ -22,7 +56,11 @@
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/scanner/ble_scanner.py",
-      "args": ["explore", "--duration", "120"],
+      "args": [
+        "explore",
+        "--duration",
+        "120"
+      ],
       "console": "integratedTerminal"
     },
     {
@@ -30,7 +68,14 @@
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/scanner/ble_scanner.py",
-      "args": ["explore", "--address", "${input:bleAddress}", "--duration", "300", "--raw"],
+      "args": [
+        "explore",
+        "--address",
+        "${input:bleAddress}",
+        "--duration",
+        "300",
+        "--raw"
+      ],
       "console": "integratedTerminal"
     }
   ],

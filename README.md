@@ -42,6 +42,19 @@ From the Run and Debug panel (F5), or the terminal:
 Try `explore` twice: once with the XL idle, once with external-sensor mode on.
 Write what you find in `docs/protocol-notes.md`.
 
+## Record and convert (XCTrack mode)
+
+Set the XL's Bluetooth to **XCTrack**, then:
+
+| Goal | VS Code (F5) | Terminal |
+| --- | --- | --- |
+| Record 20 min, reconnects on drops | Record walk (20 min) | `python scanner/ble_scanner.py record --duration 1200` |
+| Make an IGC + stats | Convert latest recording to IGC | `python scanner/nmea_to_igc.py --latest --json` |
+
+The IGC lands next to the capture in `captures/`. Stats: duration, track and straight-line
+distance, altitude range, max climb/sink (5 s average) and % of time turning left/right.
+Use `--turn-rate 4` for a walk; the default 8 deg/s suits flying (thermalling is ~15-20).
+
 ## Decode a capture
 
 `python scanner/syride_live.py captures/<file>.jsonl` prints the decoded GPS fixes and vario

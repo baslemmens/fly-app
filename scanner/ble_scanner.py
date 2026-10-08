@@ -342,6 +342,90 @@ async def cmd_explore(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# record (XCTrack mode)
+# --------------------------------------------------------------------------
+
+UART_TX_UUID = "49535343-1e4d-4bd9-ba61-23c647249616"  # Microchip Transparent UART, device -> us
+
+
+async def cmd_record(args: argparse.Namespace) -> int:
+    """
+    Record the XCTrack-mode NMEA stream for --duration seconds.
+    Reconnects automatically when the link drops (out of range, XL restarted).
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + args.duration
+    stop = asyncio.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:
+            pass
+
+    log = CaptureLog(f"record_{args.label}")
+    print(f"Recording for {args.duration / 60:.0f} min to {log.path.relative_to(REPO_ROOT)}")
+    stats = {"lines": 0, "fixes": 0, "bad_checksum": 0, "connects": 0}
+    assembler = LineAssembler()
+
+    def handler(_sender, data: bytearray) -> None:
+        raw = bytes(data)
+        log.write({"type": "notify", "char": UART_TX_UUID, "len": len(raw), "hex": raw.hex()})
+        for line in assembler.feed(raw):
+            ok = nmea_checksum_ok(line) if is_nmea(line) else None
+            stats["lines"] += 1
+            stats["bad_checksum"] += ok is False
+            stats["fixes"] += line.startswith(("$GNGGA", "$GPGGA"))
+            log.write({"type": "line", "char": UART_TX_UUID, "nmea": is_nmea(line),
+                       "checksum_ok": ok, "text": line})
+
+    async def report() -> None:
+        while not stop.is_set():
+            await asyncio.sleep(30)
+            left = max(0, deadline - loop.time())
+            print(f"  {now_iso()[11:19]} UTC  fixes {stats['fixes']}  lines {stats['lines']}  "
+                  f"reconnects {max(0, stats['connects'] - 1)}  {left / 60:.1f} min left")
+
+    reporter = asyncio.create_task(report())
+    try:
+        while not stop.is_set() and loop.time() < deadline:
+            device = await find_target(args)
+            if device is None:
+                print("  XL not found (in XCTrack mode and in range?), retrying ...")
+                log.write({"type": "not_found"})
+                continue
+            dropped = asyncio.Event()
+            try:
+                async with BleakClient(device, disconnected_callback=lambda _c: dropped.set()) as client:
+                    stats["connects"] += 1
+                    assembler = LineAssembler()
+                    log.write({"type": "connected", "name": device.name, "address": device.address})
+                    print(f"  connected to {device.name}")
+                    await client.start_notify(UART_TX_UUID, handler)
+                    waiters = [asyncio.create_task(e.wait()) for e in (stop, dropped)]
+                    await asyncio.wait(waiters, timeout=max(0, deadline - loop.time()),
+                                       return_when=asyncio.FIRST_COMPLETED)
+                    for w in waiters:
+                        w.cancel()
+            except Exception as exc:  # noqa: BLE001 - keep recording through BLE errors
+                print(f"  connection error: {exc}")
+                log.write({"type": "error", "error": str(exc)})
+            if dropped.is_set() and not stop.is_set():
+                print("  link dropped, reconnecting ...")
+                log.write({"type": "disconnect"})
+    finally:
+        stop.set()
+        reporter.cancel()
+        log.write({"type": "summary", **stats})
+        log.close()
+
+    print(f"\nDone: {stats['fixes']} GPS fixes, {stats['lines']} NMEA lines, "
+          f"{stats['bad_checksum']} bad checksums, {max(0, stats['connects'] - 1)} reconnects")
+    print(f"Capture: {log.path.relative_to(REPO_ROOT)}")
+    print(f"Convert: python scanner/nmea_to_igc.py {log.path.relative_to(REPO_ROOT)}")
+    return 0 if stats["fixes"] else 1
+
+
 def short(uuid: str) -> str:
     """Shorten standard 128-bit UUIDs (0000xxxx-0000-1000-8000-00805f9b34fb) to xxxx."""
     u = uuid.lower()
@@ -372,12 +456,20 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--duration", type=float, default=60.0, help="listen time in seconds (default 60)")
     e.add_argument("--raw", action="store_true", help="also print every raw packet as hex")
     e.add_argument("--quiet", action="store_true", help="log to file only, print nothing per packet")
+
+    r = sub.add_parser("record", help="record the XCTrack-mode NMEA stream, reconnecting on drops")
+    rt = r.add_mutually_exclusive_group()
+    rt.add_argument("--address", help="device address/UUID from `scan`")
+    rt.add_argument("--name", action="append", help="name fragment to match (repeatable)")
+    r.add_argument("--timeout", type=float, default=20.0, help="time to find the device per attempt (default 20)")
+    r.add_argument("--duration", type=float, default=1200.0, help="recording time in seconds (default 1200)")
+    r.add_argument("--label", default="walk", help="label for the capture file name (default walk)")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    handler = {"scan": cmd_scan, "explore": cmd_explore}[args.command]
+    handler = {"scan": cmd_scan, "explore": cmd_explore, "record": cmd_record}[args.command]
     try:
         return asyncio.run(handler(args))
     except KeyboardInterrupt:
