@@ -40,7 +40,12 @@ CAPTURE_DIR = REPO_ROOT / "captures"
 # Name fragments that probably belong to a Syride instrument. Matching is
 # case-insensitive. Run `scan --all` once to learn the real advertised name
 # and add it here if it differs.
-DEFAULT_NAME_HINTS = ("syride", "sysnav", "sys'nav", "sys nav", "nav xl")
+DEFAULT_NAME_HINTS = ("navxl", "syride", "sysnav", "sys'nav", "sys nav", "nav xl")
+
+# Seen on a Sys'Nav XL (advertised as "NavXL20251169", 2026-10-08):
+# service 0000eff0-... and manufacturer data 0xEEFF -> b"Syride".
+SYRIDE_SERVICE_UUID = "0000eff0-0000-1000-8000-00805f9b34fb"
+SYRIDE_MFR_ID = 0xEEFF
 
 
 # --------------------------------------------------------------------------
@@ -61,6 +66,17 @@ def looks_like_name(name: str | None, hints: tuple[str, ...]) -> bool:
         return False
     lowered = name.lower()
     return any(h in lowered for h in hints)
+
+
+def looks_like_syride(name: str | None, service_uuids, manufacturer_data,
+                      hints: tuple[str, ...] = DEFAULT_NAME_HINTS) -> bool:
+    """Match by name, by the XL's service UUID, or by 'Syride' manufacturer data."""
+    if looks_like_name(name, hints):
+        return True
+    if SYRIDE_SERVICE_UUID in [u.lower() for u in (service_uuids or [])]:
+        return True
+    payload = (manufacturer_data or {}).get(SYRIDE_MFR_ID, b"")
+    return b"syride" in bytes(payload).lower()
 
 
 class LineAssembler:
@@ -141,7 +157,7 @@ async def cmd_scan(args: argparse.Namespace) -> int:
     rows = []
     for address, (device, adv) in found.items():
         name = adv.local_name or device.name
-        if not args.all and not looks_like_name(name, hints):
+        if not args.all and not looks_like_syride(name, adv.service_uuids, adv.manufacturer_data, hints):
             continue
         rows.append((adv.rssi, address, name, adv))
 
@@ -191,7 +207,8 @@ async def find_target(args: argparse.Namespace):
     else:
         hints = tuple(h.lower() for h in (args.name or DEFAULT_NAME_HINTS))
         device = await BleakScanner.find_device_by_filter(
-            lambda d, ad: looks_like_name(ad.local_name or d.name, hints),
+            lambda d, ad: looks_like_syride(ad.local_name or d.name, ad.service_uuids,
+                                            ad.manufacturer_data, hints),
             timeout=args.timeout,
         )
     return device
@@ -347,7 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
     target = e.add_mutually_exclusive_group()
     target.add_argument("--address", help="device address/UUID from `scan`")
     target.add_argument("--name", action="append", help="name fragment to match (repeatable)")
-    e.add_argument("--timeout", type=float, default=15.0, help="time to find the device (default 15)")
+    e.add_argument("--timeout", type=float, default=30.0, help="time to find the device (default 30)")
     e.add_argument("--duration", type=float, default=60.0, help="listen time in seconds (default 60)")
     e.add_argument("--raw", action="store_true", help="also print every raw packet as hex")
     e.add_argument("--quiet", action="store_true", help="log to file only, print nothing per packet")
