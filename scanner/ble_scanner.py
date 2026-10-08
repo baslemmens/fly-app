@@ -164,6 +164,20 @@ async def cmd_scan(args: argparse.Namespace) -> int:
 
     print("\nOn macOS the address is a per-Mac UUID, not the device's MAC address.")
     print("Use it with: explore --address <address>")
+
+    if not args.no_save:
+        CAPTURE_DIR.mkdir(exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        path = CAPTURE_DIR / f"{stamp}_scan{'_all' if args.all else ''}.json"
+        path.write_text(json.dumps([
+            {"name": name, "address": address, "rssi": rssi,
+             "service_uuids": list(adv.service_uuids),
+             "manufacturer_data": {f"0x{k:04X}": v.hex() for k, v in adv.manufacturer_data.items()},
+             "service_data": {k: v.hex() for k, v in adv.service_data.items()},
+             "tx_power": adv.tx_power}
+            for rssi, address, name, adv in rows
+        ], indent=2), encoding="utf-8")
+        print(f"\nScan saved to {path.relative_to(REPO_ROOT)}")
     return 0
 
 
@@ -327,6 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--timeout", type=float, default=10.0, help="scan time in seconds (default 10)")
     s.add_argument("--all", action="store_true", help="show every device, not only Syride-like names")
     s.add_argument("--name", action="append", help="name fragment to match (repeatable)")
+    s.add_argument("--no-save", action="store_true", help="don't write the scan to captures/")
 
     e = sub.add_parser("explore", help="connect, map GATT, log all notifications")
     target = e.add_mutually_exclusive_group()
