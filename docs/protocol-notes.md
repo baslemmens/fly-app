@@ -52,7 +52,7 @@ The scanner matches the XL by name, service `eff0` or the "Syride" manufacturer 
 
 Device Information in this mode reads Microchip / RN487x / software 1.30: a separate
 Bluetooth module. Only service `49535343-fe7d-…` (Transparent UART) is present.
-TX characteristic `49535343-1e4d-…` notifies NMEA text; all 2,532 sentences in a
+TX characteristic `49535343-1e4d-…` notifies NMEA text; all 1,287 sentences in a
 2-minute capture passed their checksums. Rates over 120 s:
 
 | Sentence | Count | Rate | Fields that matter |
