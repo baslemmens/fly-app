@@ -8,6 +8,9 @@ It never writes to the instrument.
 
 ## Setup (Mac, VS Code)
 
+Requires **Python 3.10 or newer** (developed on 3.13): bleak 3.x fails to import on 3.9.
+With pyenv: `pyenv install 3.13 && pyenv local 3.13` in this folder before creating the venv.
+
 1. Clone and open the folder in VS Code; install the recommended extensions when asked.
 2. Create the environment: **Terminal → Run Task… → Setup: create venv and install**
    (or `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`).
